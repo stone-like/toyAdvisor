@@ -88,7 +88,6 @@ func CreateContainer(containerName string, savePath string, machineSpec *Machine
 	return container, nil
 
 }
-
 func GetContainerSpec(paths map[string]string) *ContainerSpec {
 	spec := &ContainerSpec{}
 	memoryPath, ok := paths["memory"]
@@ -186,7 +185,6 @@ func (c *Container) WriteStatsToFile() error {
 	defer f.Close()
 
 	status := c.CaluculateStats()
-	fmt.Println(status)
 
 	const format = "2006/01/02 15:04:05"
 	str := fmt.Sprintf("%s %s\n", time.Now().Format(format), c.Name)

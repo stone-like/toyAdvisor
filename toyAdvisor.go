@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"regexp"
 	"runtime"
@@ -15,6 +16,8 @@ var dockerStartingPoint = []string{
 
 type Advisor struct {
 	containers  map[string]*Container
+	watchers    []*Watcher
+	stopCh      chan struct{}
 	SavePath    string
 	MachineSpec *MachineSpec
 }
@@ -23,26 +26,9 @@ func NewAdvisor(metricSavePath string) *Advisor {
 	return &Advisor{
 		containers: make(map[string]*Container),
 		SavePath:   metricSavePath,
+		stopCh:     make(chan struct{}),
 	}
 }
-
-// func (a *Advisor) GetDockerContainers() (map[string]struct{}, error) {
-// 	containerNames := make(map[string]struct{})
-
-// 	for _, path := range CgroupMounts {
-// 		names, err := GetContainers(path, "/docker")
-// 		if err != nil {
-// 			return nil, err
-// 		}
-
-// 		for name := range names {
-// 			containerNames[name] = struct{}{}
-// 		}
-// 	}
-
-// 	return containerNames, nil
-
-// }
 
 type MachineSpec struct {
 	NumCore        uint64
@@ -57,7 +43,7 @@ func (a *Advisor) InitDockerContainers() error {
 	}
 
 	for name := range containerNames {
-		container, err := CreateContainer(name, a.SavePath, a.MachineSpec)
+		container, err := a.CreateContainer(name)
 		if err != nil {
 			return err
 		}
@@ -111,25 +97,87 @@ func (a *Advisor) GetMachineSpec() error {
 	return nil
 }
 
-func (a *Advisor) Start() {
+func (a *Advisor) Start() error {
 
 	a.GetMachineSpec()
 
-	//現在動いているdockerContainerを探してmetricを開始
+	//現在動いているdockerContainerを探してmetric収集を開始
 	a.InitDockerContainers()
 
 	////sys/.../docker以下を監視
-	eventCh := make(chan string)
+	eventCh := make(chan Event)
 
-	for _, path := range dockerStartingPoint {
-		watcher := NewWatcher(eventCh, path)
-		watcher.Start()
+	watcher, err := NewWatcher(eventCh, dockerStartingPoint)
+
+	if err != nil {
+		return err
 	}
 
+	watcher.Start()
+
+	a.ProcessContainerEvent(eventCh)
+
+	return nil
+
+}
+
+func (a *Advisor) ProcessContainerEvent(eventCh chan Event) {
+	go func() {
+		for {
+			select {
+			case event := <-eventCh:
+				switch event.EventType {
+				case ContainerAdd:
+					_, exist := a.containers[event.ContainerName]
+					if exist {
+						continue
+					}
+					container, err := a.CreateContainer(event.ContainerName)
+					if err != nil {
+						log.Println(err)
+						continue
+					}
+					a.containers[event.ContainerName] = container
+				case ContainerDelete:
+					_, exist := a.containers[event.ContainerName]
+					if !exist {
+						continue
+					}
+					err := a.DeleteContainer(event.ContainerName)
+					if err != nil {
+						log.Println(err)
+					}
+				}
+			case <-a.stopCh:
+				return
+			}
+		}
+	}()
+}
+
+func (a *Advisor) CreateContainer(containerName string) (*Container, error) {
+	fmt.Printf("createContainer %s\n", containerName)
+	return CreateContainer(containerName, a.SavePath, a.MachineSpec)
+}
+
+func (a *Advisor) DeleteContainer(containerName string) error {
+	fmt.Printf("deleteContainer %s\n", containerName)
+	target := a.containers[containerName]
+
+	target.Stop()
+
+	delete(a.containers, containerName)
+	return nil
 }
 
 func (a *Advisor) Stop() {
 	for _, container := range a.containers {
 		container.Stop()
 	}
+
+	for _, watcher := range a.watchers {
+		watcher.Stop()
+	}
+
+	close(a.stopCh)
 }

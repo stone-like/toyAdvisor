@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/opencontainers/runc/libcontainer/cgroups"
@@ -16,6 +15,7 @@ var (
 
 type CgroupManager struct {
 	Manager cgroups.Manager
+	eventCh chan Event
 	// Handler
 }
 
@@ -52,14 +52,55 @@ func (c *CgroupManager) GetStats() (*ContainerStats, error) {
 		return nil, err
 	}
 
-	//今回はCpuStats.CpuUsage.TotalUsage,MemoryStats.MemoryUsage.TotalUsageのみ使用
-
-	fmt.Println(stats)
-
 	return &ContainerStats{
 		Time:           time.Now(),
 		CpuUsage:       stats.CpuStats.CpuUsage.TotalUsage,
 		CpuSystemUsage: stats.CpuStats.CpuUsage.UsageInUsermode + stats.CpuStats.CpuUsage.UsageInKernelmode,
 		MemoryUsage:    stats.MemoryStats.Usage.Usage - stats.MemoryStats.Stats["total_inactive_file"],
 	}, nil
+}
+
+func (c *CgroupManager) WatchContainers() error {
+	// go func() {
+	// 	for {
+	// 		select {
+	// 		case event := <-c.eventCh:
+	// 			switch {
+	// 			case event.EventType == ContainerAdd:
+	// 				err := CreateContainer(event.Name, event.WatchSource)
+	// 				if err != nil {
+	// 					log.Println(err)
+	// 				}
+
+	// 			case event.EventType == ContainerDelete:
+	// 				// err := m.destroyContainer(event.Name)
+	// 				// if err != nil {
+	// 				// 	log.Println(err)
+	// 				// }
+	// 			}
+
+	// 			// case <-quit:
+	// 			// 	var errs partialFailure
+
+	// 			// 	// Stop processing events if asked to quit.
+	// 			// 	for i, watcher := range m.containerWatchers {
+	// 			// 		err := watcher.Stop()
+	// 			// 		if err != nil {
+	// 			// 			errs.append(fmt.Sprintf("watcher %d", i), "Stop", err)
+	// 			// 		}
+	// 			// 	}
+
+	// 			// 	if len(errs) > 0 {
+	// 			// 		quit <- errs
+	// 			// 	} else {
+	// 			// 		quit <- nil
+	// 			// 		klog.Infof("Exiting thread watching subcontainers")
+	// 			// 		return
+	// 			// 	}
+	// 			// }
+	// 		}
+	// 	}
+	// }()
+
+	return nil
 }
